@@ -207,6 +207,15 @@ def find_syllabus_batch(
                 time.sleep(random.uniform(2, 4))
                 continue
 
+            # Quality gate: only replace existing grading if scraped components
+            # sum to ≥85%. Otherwise the extractor likely missed real rows and
+            # we'd end up showing a partial breakdown like just exams.
+            total_weight = sum(c["weight"] for c in result["components"])
+            if total_weight < 85:
+                print(f"Skipping {code}: scraped total {total_weight}% below 85% threshold")
+                time.sleep(random.uniform(2, 4))
+                continue
+
             local_db = SessionLocal()
             try:
                 outline = CourseOutline(
