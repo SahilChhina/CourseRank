@@ -36,6 +36,38 @@ GRADING_HEADER_RE = re.compile(
     r"(?i)(" + "|".join(GRADING_HEADERS) + r")",
 )
 
+# Headers that signal the grading section has ended — stop extraction here.
+END_OF_GRADING_HEADERS = [
+    r"late\s*polic",
+    r"late\s*penalt",
+    r"missed\s*work",
+    r"missed\s*assess",
+    r"academic\s*integrity",
+    r"academic\s*offence",
+    r"plagiarism",
+    r"accommodat",
+    r"religious\s*observance",
+    r"accessibility",
+    r"mental\s*health",
+    r"course\s*polic",
+    r"attendance\s*polic",
+    r"learning\s*outcome",
+    r"course\s*schedule",
+    r"weekly\s*schedule",
+    r"important\s*dates",
+    r"prerequisite",
+    r"textbook",
+    r"required\s*reading",
+    r"course\s*material",
+    r"office\s*hours",
+    r"contact\s*information",
+    r"to\s*be\s*eligible",
+    r"passing\s*grade",
+    r"in\s*order\s*to\s*pass",
+    r"minimum\s*grade",
+]
+END_OF_GRADING_RE = re.compile(r"(?i)^\s*(" + "|".join(END_OF_GRADING_HEADERS) + r")")
+
 # Component keywords used to validate / label extracted rows
 COMPONENT_KEYWORDS = [
     "assignment", "assignments", "homework", "hw",
@@ -53,6 +85,30 @@ COMPONENT_KEYWORDS = [
     "reading", "readings",
     "group work", "group project",
 ]
+
+# Words that, if present in a "component name", indicate it's actually a
+# pass/fail condition, late penalty clause, or other prose — not a grading row.
+DISQUALIFYING_PHRASES = [
+    "must receive", "must obtain", "must achieve", "must pass",
+    "eligible", "weighted average of at least", "in order to",
+    "if these conditions", "maximum mark", "pro rated", "prorated",
+    "days late", "day late", "submitted", "on time",
+    "course grade", "grand total", "overall mark", "overall grade",
+    "minimum of", "at least a", "passing grade",
+    "students who", "students must", "you must", "you will receive",
+]
+
+# Date-like patterns that show up in due date schedules
+DATE_PATTERNS = [
+    re.compile(r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{1,2}", re.IGNORECASE),
+    re.compile(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", re.IGNORECASE),
+    re.compile(r"\bweek\s+\d{1,2}\b", re.IGNORECASE),
+]
+
+# A single grading component above this weight is almost certainly garbage.
+MAX_REASONABLE_WEIGHT = 70.0
+# A "component name" longer than this is almost certainly a sentence.
+MAX_REASONABLE_NAME_LEN = 50
 
 # Regex that matches a percentage on a line: "30%", "30 %", "(30%)", "30/100"
 PCT_RE = re.compile(r"(\d{1,3}(?:\.\d{1,2})?)\s*%")
@@ -113,12 +169,19 @@ def _extract_from_tables(
             combined = " ".join(cells)
 
             pct = _find_percentage(combined)
-            if pct is None:
+            if pct is None or pct <= 0 or pct > MAX_REASONABLE_WEIGHT:
                 continue
 
             # The component name is whichever cell is NOT the number
             name = _best_name_cell(cells, pct)
             if not name:
+                continue
+
+            if not _is_valid_component_name(name):
+                continue
+
+            # Require a known component keyword so we don't pick up due-date tables
+            if not any(kw in name.lower() for kw in COMPONENT_KEYWORDS):
                 continue
 
             rows_hit.append(GradingComponentRaw(name=name, weight=pct, source="table"))
@@ -151,15 +214,40 @@ def _extract_from_text(full_text: str) -> ExtractionResult:
 
 def _isolate_grading_section(text: str) -> str:
     """
-    Find the grading section header and return the 60 lines after it.
-    If no header found, returns the full text (lower confidence).
+    Find the grading section header and return the lines after it, stopping
+    at the next major section header (late policy, academic integrity, etc.).
+    Capped at 25 lines as a safety net. Falls back to full text if no header.
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
         if GRADING_HEADER_RE.search(line):
-            snippet = lines[i : i + 60]
+            snippet = [line]
+            for j in range(i + 1, min(i + 26, len(lines))):
+                if END_OF_GRADING_RE.search(lines[j]):
+                    break
+                snippet.append(lines[j])
             return "\n".join(snippet)
     return text
+
+
+def _is_valid_component_name(name: str) -> bool:
+    """Reject sentence-like fragments, dates, pass/fail conditions, late-penalty rows."""
+    if len(name) < 3 or len(name) > MAX_REASONABLE_NAME_LEN:
+        return False
+    if re.fullmatch(r"[\d\s.]+", name):
+        return False
+    if re.fullmatch(r"(grand\s+)?total", name.strip(), re.IGNORECASE):
+        return False
+    lower = name.lower()
+    if any(phrase in lower for phrase in DISQUALIFYING_PHRASES):
+        return False
+    for pat in DATE_PATTERNS:
+        if pat.search(name):
+            return False
+    # Reject sentence-like names (too many words, or ends mid-phrase)
+    if len(name.split()) > 6:
+        return False
+    return True
 
 
 def _parse_percentage_lines(text: str, source: str) -> List[GradingComponentRaw]:
@@ -172,7 +260,7 @@ def _parse_percentage_lines(text: str, source: str) -> List[GradingComponentRaw]
             continue
 
         pct = _find_percentage(line)
-        if pct is None or pct <= 0 or pct > 100:
+        if pct is None or pct <= 0 or pct > MAX_REASONABLE_WEIGHT:
             continue
 
         # Strip the percentage token from the line to get the component name
@@ -181,18 +269,12 @@ def _parse_percentage_lines(text: str, source: str) -> List[GradingComponentRaw]
         name = re.sub(r"[\[\]()|:*•·\-]+", " ", name).strip()
         name = re.sub(r"\s{2,}", " ", name)
 
-        # Must be at least 3 chars and not purely numeric
-        if len(name) < 3 or re.fullmatch(r"[\d\s.]+", name):
+        if not _is_valid_component_name(name):
             continue
 
-        # Skip "Total" / "Grand Total" summary rows
-        if re.fullmatch(r"(grand\s+)?total", name.strip(), re.IGNORECASE):
-            continue
-
-        # Prefer lines that contain a known component keyword
+        # Require a known component keyword regardless of source
         lower = name.lower()
-        has_keyword = any(kw in lower for kw in COMPONENT_KEYWORDS)
-        if not has_keyword and source == "fallback":
+        if not any(kw in lower for kw in COMPONENT_KEYWORDS):
             continue
 
         components.append(GradingComponentRaw(name=name, weight=pct, source=source))
