@@ -10,6 +10,7 @@ const POPULAR_COURSES = ["CS 2210", "CS 3305", "CS 3350", "SE 2203", "MATH 2155"
 export default function Home() {
   const [results, setResults] = useState<CourseSearchResult[]>([]);
   const [hasSearched, setHasSearched] = useState(false);
+  const [chipError, setChipError] = useState("");
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
@@ -84,13 +85,19 @@ export default function Home() {
               {POPULAR_COURSES.map((code) => (
                 <button
                   key={code}
-                  onClick={() => searchCourses(code).then((r) => { setResults(r); setHasSearched(true); })}
+                  onClick={() => {
+                    setChipError("");
+                    searchCourses(code)
+                      .then((r) => { setResults(r); setHasSearched(true); })
+                      .catch(() => setChipError("Search failed. Make sure the backend is running."));
+                  }}
                   className="px-4 py-2 rounded-full border border-gray-300 text-sm font-medium hover:border-western-purple hover:text-western-purple transition bg-white"
                 >
                   {code}
                 </button>
               ))}
             </div>
+            {chipError && <p className="text-red-500 text-sm mt-2">{chipError}</p>}
 
             {/* How it works */}
             <div className="mt-14 grid grid-cols-1 sm:grid-cols-3 gap-6">

@@ -399,6 +399,30 @@ def analyze_sentiment_batch(
     }
 
 
+@router.post("/reseed")
+def reseed_database(db: Session = Depends(get_db)):
+    """Clear all course data and re-seed with updated starter data."""
+    from app.models.grading import GradingComponent
+    from app.models.review import Review
+    from app.models.sentiment import CourseScore, SentimentResult
+    from app.models.course import SearchLog, CourseOutline
+
+    db.query(SearchLog).delete()
+    db.query(GradingComponent).delete()
+    db.query(Review).delete()
+    db.query(CourseScore).delete()
+    db.query(SentimentResult).delete()
+    db.query(CourseOutline).delete()
+    db.query(Course).delete()
+    db.commit()
+
+    from app.seed import seed
+    seed()
+
+    total = db.query(func.count(Course.id)).scalar()
+    return {"status": "success", "courses_seeded": total}
+
+
 @router.post("/reprocess-course/{course_id}")
 def reprocess_course(course_id: int, db: Session = Depends(get_db)):
     """Re-run grading extraction on the most recent stored syllabus text."""
