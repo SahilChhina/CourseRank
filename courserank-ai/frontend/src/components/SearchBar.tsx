@@ -43,7 +43,7 @@ export default function SearchBar({ onResults, large = false }: Props) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search by course code or name, e.g. CS 2210"
-          className={`flex-1 border border-gray-300 rounded-lg px-4 focus:outline-none focus:ring-2 focus:ring-western-purple bg-white ${
+          className={`flex-1 border border-gray-300 rounded-lg px-4 focus:outline-none focus:ring-2 focus:ring-western-purple bg-white text-gray-900 placeholder-gray-400 ${
             large ? "py-4 text-lg" : "py-2 text-sm"
           }`}
         />
