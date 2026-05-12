@@ -167,26 +167,42 @@ def find_syllabus_auto(
 def find_syllabus_batch(
     background_tasks: BackgroundTasks,
     limit: int = 20,
+    force: bool = False,
     db: Session = Depends(get_db),
 ):
-    """Find syllabuses for up to `limit` courses that have no grading components."""
+    """Find syllabuses for up to `limit` courses.
+
+    By default only processes courses with no grading components.
+    Pass force=true to re-process courses that already have grading (e.g. seeded data).
+    """
     from app.models.grading import GradingComponent as GC
 
-    courses_without = (
-        db.query(Course)
-        .outerjoin(GC, GC.course_id == Course.id)
-        .filter(GC.id.is_(None))
-        .limit(limit)
-        .all()
-    )
+    if force:
+        courses_without = db.query(Course).limit(limit).all()
+    else:
+        courses_without = (
+            db.query(Course)
+            .outerjoin(GC, GC.course_id == Course.id)
+            .filter(GC.id.is_(None))
+            .limit(limit)
+            .all()
+        )
 
-    def _run_batch(course_list: list):
+    course_data = [(c.id, c.course_code, c.course_name) for c in courses_without]
+
+    def _run_batch(course_list):
         from app.database import SessionLocal
         from app.services.syllabus_finder import find_syllabus
         import time, random
 
-        for course in course_list:
-            result = find_syllabus(course.course_code, course.course_name)
+        for cid, code, name in course_list:
+            try:
+                result = find_syllabus(code, name)
+            except Exception as e:
+                print(f"find_syllabus failed for {code}: {e}")
+                time.sleep(random.uniform(2, 4))
+                continue
+
             if not result or not result.get("components"):
                 time.sleep(random.uniform(2, 4))
                 continue
@@ -194,7 +210,7 @@ def find_syllabus_batch(
             local_db = SessionLocal()
             try:
                 outline = CourseOutline(
-                    course_id=course.id,
+                    course_id=cid,
                     raw_text=result["raw_text"][:50000],
                     term=None,
                     year=None,
@@ -205,12 +221,12 @@ def find_syllabus_batch(
                 local_db.flush()
 
                 local_db.query(GradingComponent).filter(
-                    GradingComponent.course_id == course.id
+                    GradingComponent.course_id == cid
                 ).delete()
 
                 for comp in result["components"]:
                     local_db.add(GradingComponent(
-                        course_id=course.id,
+                        course_id=cid,
                         component_name=comp["name"],
                         weight=comp["weight"],
                         confidence_score=result["confidence"],
@@ -222,10 +238,11 @@ def find_syllabus_batch(
 
             time.sleep(random.uniform(2, 4))
 
-    background_tasks.add_task(_run_batch, courses_without)
+    background_tasks.add_task(_run_batch, course_data)
     return {
         "status": "batch_started",
-        "courses_queued": len(courses_without),
+        "courses_queued": len(course_data),
+        "force": force,
     }
 
 
