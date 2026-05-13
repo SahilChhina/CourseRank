@@ -425,6 +425,43 @@ def analyze_sentiment_batch(
     }
 
 
+@router.post("/scrape-calendar")
+def scrape_calendar(
+    background_tasks: BackgroundTasks,
+    all_subjects: bool = False,
+    subjects: str | None = None,
+):
+    """Scrape Western Academic Calendar in the background.
+
+    - Default: scrape PRIORITY_SUBJECTS (~29 subjects, ~3-5 min).
+    - all_subjects=true: scrape ALL_SUBJECTS (~130 subjects, ~10-15 min).
+    - subjects="COMPSCI,MATH,SE": scrape just these.
+    """
+    from app.scripts.scrape_calendar import (
+        PRIORITY_SUBJECTS, ALL_SUBJECTS, run,
+    )
+
+    if subjects:
+        targets = [s.strip().upper() for s in subjects.split(",") if s.strip()]
+    elif all_subjects:
+        targets = ALL_SUBJECTS
+    else:
+        targets = PRIORITY_SUBJECTS
+
+    def _run_scrape(subject_list):
+        try:
+            run(subject_list)
+        except Exception as e:
+            print(f"Calendar scrape failed: {e}")
+
+    background_tasks.add_task(_run_scrape, targets)
+    return {
+        "status": "scrape_started",
+        "subjects_queued": len(targets),
+        "estimated_minutes": round(len(targets) * 6 / 60, 1),
+    }
+
+
 @router.post("/reseed")
 def reseed_database(db: Session = Depends(get_db)):
     """Clear all course data and re-seed with updated starter data."""
