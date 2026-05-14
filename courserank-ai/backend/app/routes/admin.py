@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -17,8 +18,12 @@ MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 
 @router.get("/stats")
 def get_stats(db: Session = Depends(get_db)):
+    total_courses = db.query(func.count(Course.id)).scalar()
+    courses_with_grading = db.query(func.count(Course.id.distinct())).join(GradingComponent).scalar()
     return {
-        "total_courses": db.query(func.count(Course.id)).scalar(),
+        "total_courses": total_courses,
+        "courses_with_grading": courses_with_grading,
+        "courses_without_grading": total_courses - courses_with_grading,
         "total_reviews": db.query(func.count(Review.id)).scalar(),
         "total_outlines": db.query(func.count(CourseOutline.id)).scalar(),
         "flagged_reviews": db.query(func.count(Review.id)).filter(Review.is_flagged == True).scalar(),
@@ -211,8 +216,8 @@ def find_syllabus_batch(
             # sum to ≥85%. Otherwise the extractor likely missed real rows and
             # we'd end up showing a partial breakdown like just exams.
             total_weight = sum(c["weight"] for c in result["components"])
-            if total_weight < 85:
-                print(f"Skipping {code}: scraped total {total_weight}% below 85% threshold")
+            if total_weight < 75:
+                print(f"Skipping {code}: scraped total {total_weight}% below 75% threshold")
                 time.sleep(random.uniform(2, 4))
                 continue
 
@@ -245,7 +250,7 @@ def find_syllabus_batch(
             finally:
                 local_db.close()
 
-            time.sleep(random.uniform(2, 4))
+            time.sleep(random.uniform(5, 10))
 
     background_tasks.add_task(_run_batch, course_data)
     return {
@@ -429,7 +434,7 @@ def analyze_sentiment_batch(
 def scrape_calendar(
     background_tasks: BackgroundTasks,
     all_subjects: bool = False,
-    subjects: str | None = None,
+    subjects: Optional[str] = None,
 ):
     """Scrape Western Academic Calendar in the background.
 

@@ -90,12 +90,15 @@ COMPONENT_KEYWORDS = [
 # pass/fail condition, late penalty clause, or other prose — not a grading row.
 DISQUALIFYING_PHRASES = [
     "must receive", "must obtain", "must achieve", "must pass",
+    "must score", "must earn",
     "eligible", "weighted average of at least", "in order to",
     "if these conditions", "maximum mark", "pro rated", "prorated",
     "days late", "day late", "submitted", "on time",
     "course grade", "grand total", "overall mark", "overall grade",
-    "minimum of", "at least a", "passing grade",
+    "minimum of", "at least a", "passing grade", "pass mark", "passing mark",
     "students who", "students must", "you must", "you will receive",
+    "you need", "need at least", "required to pass", "to pass the",
+    "in order to pass",
 ]
 
 # Date-like patterns that show up in due date schedules
@@ -180,10 +183,6 @@ def _extract_from_tables(
             if not _is_valid_component_name(name):
                 continue
 
-            # Require a known component keyword so we don't pick up due-date tables
-            if not any(kw in name.lower() for kw in COMPONENT_KEYWORDS):
-                continue
-
             rows_hit.append(GradingComponentRaw(name=name, weight=pct, source="table"))
 
         # Only accept this table if it looks like a grading table (>=2 rows with %)
@@ -216,13 +215,13 @@ def _isolate_grading_section(text: str) -> str:
     """
     Find the grading section header and return the lines after it, stopping
     at the next major section header (late policy, academic integrity, etc.).
-    Capped at 25 lines as a safety net. Falls back to full text if no header.
+    Capped at 50 lines as a safety net. Falls back to full text if no header.
     """
     lines = text.splitlines()
     for i, line in enumerate(lines):
         if GRADING_HEADER_RE.search(line):
             snippet = [line]
-            for j in range(i + 1, min(i + 26, len(lines))):
+            for j in range(i + 1, min(i + 51, len(lines))):
                 if END_OF_GRADING_RE.search(lines[j]):
                     break
                 snippet.append(lines[j])
@@ -270,11 +269,6 @@ def _parse_percentage_lines(text: str, source: str) -> List[GradingComponentRaw]
         name = re.sub(r"\s{2,}", " ", name)
 
         if not _is_valid_component_name(name):
-            continue
-
-        # Require a known component keyword regardless of source
-        lower = name.lower()
-        if not any(kw in lower for kw in COMPONENT_KEYWORDS):
             continue
 
         components.append(GradingComponentRaw(name=name, weight=pct, source=source))

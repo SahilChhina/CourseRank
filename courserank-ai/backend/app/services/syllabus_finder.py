@@ -109,7 +109,7 @@ def _search_web(course_code: str, course_name: str) -> list[str]:
                 found.append(url)
         if found:
             break
-        time.sleep(random.uniform(2.0, 4.0))
+        time.sleep(random.uniform(8.0, 14.0))
     return found
 
 
@@ -176,7 +176,7 @@ def find_syllabus(course_code: str, course_name: str) -> Optional[dict]:
         time.sleep(0.3)
 
     # Step 2: fall back to web search
-    time.sleep(random.uniform(1.5, 3.0))
+    time.sleep(random.uniform(10.0, 18.0))
     web_urls = _search_web(course_code, course_name)
     for url in web_urls:
         pdf_bytes = _download_pdf(url)
