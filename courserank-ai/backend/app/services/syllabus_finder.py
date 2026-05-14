@@ -34,8 +34,9 @@ MAX_PDF_BYTES = 10 * 1024 * 1024  # 10 MB
 # ── Known department syllabus URL patterns ────────────────────────────────────
 
 def _cs_candidate_urls(course_code: str) -> list[str]:
-    """Western CS dept posts outlines at csd.uwo.ca/misc/outlines/{year}-{term}/"""
-    # Parse course number from "CS 1027" → "1027"
+    """Western CS dept posts outlines at csd.uwo.ca/misc/outlines/{year}-{term}/
+    FW code = last 2 digits of the FALL year (Fall 2025 and Winter 2026 both use FW25).
+    """
     m = re.match(r"CS\s*(\d+)", course_code, re.IGNORECASE)
     if not m:
         return []
@@ -44,13 +45,15 @@ def _cs_candidate_urls(course_code: str) -> list[str]:
     urls = []
     current_year = 2026
     for year in range(current_year, current_year - 3, -1):
-        for term, label in [("Winter", "W"), ("Fall", "F"), ("Summer", "S")]:
+        # Winter belongs to the previous fall's academic year
+        for term, fw_code in [("Winter", str(year - 1)[2:]), ("Fall", str(year)[2:])]:
             base = f"https://www.csd.uwo.ca/misc/outlines/{year}-{term}/"
             for suffix in [
-                f"CS{num}B.pdf",
+                f"CS_{num}A_FW{fw_code}.pdf",
+                f"CS_{num}B_FW{fw_code}.pdf",
+                f"CS_{num}Y_FW{fw_code}.pdf",
                 f"CS{num}A.pdf",
-                f"CS_{num}B_FW{str(year-1)[2:]}.pdf",
-                f"CS_{num}A_FW{str(year-1)[2:]}.pdf",
+                f"CS{num}B.pdf",
                 f"CS{num}.pdf",
             ]:
                 urls.append(base + suffix)
@@ -67,6 +70,93 @@ def _se_candidate_urls(course_code: str) -> list[str]:
         for term in ["Winter", "Fall"]:
             base = f"https://www.eng.uwo.ca/se/courses/outlines/{year}-{term}/"
             urls.append(base + f"SE{num}.pdf")
+    return urls
+
+
+def _math_candidate_urls(course_code: str) -> list[str]:
+    """
+    Western Math dept posts outlines at:
+    math.uwo.ca/undergraduate/current_students/course_information/course-outlines-directory/{year}/
+    Filename pattern: Math-{num}-Course-Outline-{term}-{year}.pdf
+    Covers MATH, CALC, APPLMATH (STATS has its own site).
+    """
+    m = re.match(r"(MATH|CALC|APPLMATH)\s*(\d+)", course_code, re.IGNORECASE)
+    if not m:
+        return []
+    prefix = m.group(1).capitalize()
+    num = m.group(2)
+    base_url = "https://www.math.uwo.ca/undergraduate/current_students/course_information/course-outlines-directory/"
+    urls = []
+    for year in range(2026, 2020, -1):
+        for term in ["Fall", "Winter", "Summer"]:
+            urls.append(f"{base_url}{year}/{prefix}-{num}-Course-Outline-{term}-{year}.pdf")
+    return urls
+
+
+def _stats_candidate_urls(course_code: str) -> list[str]:
+    """
+    Western Stats dept posts outlines at:
+    uwo.ca/stats/undergraduate/course-outlines/{academicyear}/
+    STATS courses use SS prefix, DATASCI use DS prefix.
+    2025-26 format: SS{num}{section}_1259.pdf
+    """
+    m = re.match(r"(STATS|DATASCI)\s*(\d+)", course_code, re.IGNORECASE)
+    if not m:
+        return []
+    prefix_map = {"STATS": "SS", "DATASCI": "DS"}
+    prefix = prefix_map[m.group(1).upper()]
+    num = m.group(2)
+    base = "https://www.uwo.ca/stats/undergraduate/course-outlines/"
+    urls = []
+    for year_folder, suffix in [("20252026", "_1259"), ("20242025", ""), ("20232024", "")]:
+        for section in ["A", "B", ""]:
+            urls.append(f"{base}{year_folder}/{prefix}{num}{section}{suffix}.pdf")
+    return urls
+
+
+def _physics_candidate_urls(course_code: str) -> list[str]:
+    """
+    Western Physics dept posts outlines at:
+    physics.uwo.ca/pdfs/undergraduate/outlines_{yy}_{yy}/
+    Most common pattern: Phys {num}.pdf (URL-encoded space as %20)
+    """
+    m = re.match(r"PHYSICS\s*(\d+)", course_code, re.IGNORECASE)
+    if not m:
+        return []
+    num = m.group(1)
+    base = "https://physics.uwo.ca/pdfs/undergraduate/"
+    urls = []
+    for year_folder in ["outlines_25_26", "outlines_24_25", "outlines_23_24"]:
+        urls.append(f"{base}{year_folder}/Phys%20{num}.pdf")
+        urls.append(f"{base}{year_folder}/Phys{num}.pdf")
+    return urls
+
+
+def _ece_candidate_urls(course_code: str) -> list[str]:
+    """
+    Western ECE dept posts outlines at:
+    eng.uwo.ca/electrical/undergraduate/
+    2025 pattern: ECE-{num}{section}_{term}[-_]{year}[-_]Website[-_]Version.pdf
+    2023-24 pattern: ECE-{num}{section}-{year}-{year}_approved.pdf
+    Tries both underscore and dash variants plus section letters.
+    """
+    m = re.match(r"ECE\s*(\d+)", course_code, re.IGNORECASE)
+    if not m:
+        return []
+    num = m.group(1)
+    base = "https://www.eng.uwo.ca/electrical/undergraduate/"
+    urls = []
+    for section in ["A", "B", ""]:
+        # 2025-26 variants (two separator styles seen in the wild)
+        urls.append(f"{base}ECE-{num}{section}_Fall_2025_Website_Version.pdf")
+        urls.append(f"{base}ECE-{num}{section}_Fall-2025-Website-Version.pdf")
+        urls.append(f"{base}ECE-{num}{section}_Winter_2026_Website_Version.pdf")
+        urls.append(f"{base}ECE-{num}{section}_Winter-2026-Website-Version.pdf")
+        # 2024-25 variants
+        urls.append(f"{base}ECE-{num}{section}-2024-25.pdf")
+        urls.append(f"{base}ECE-{num}{section}_2024-25.pdf")
+        # 2023-24 variants
+        urls.append(f"{base}ECE-{num}{section}-2023-24_approved.pdf")
     return urls
 
 
@@ -172,6 +262,14 @@ def find_syllabus(course_code: str, course_name: str) -> Optional[dict]:
         pattern_urls = _cs_candidate_urls(course_code)
     elif prefix == "SE":
         pattern_urls = _se_candidate_urls(course_code)
+    elif prefix in ("MATH", "CALC", "APPLMATH"):
+        pattern_urls = _math_candidate_urls(course_code)
+    elif prefix in ("STATS", "DATASCI"):
+        pattern_urls = _stats_candidate_urls(course_code)
+    elif prefix == "PHYSICS":
+        pattern_urls = _physics_candidate_urls(course_code)
+    elif prefix == "ECE":
+        pattern_urls = _ece_candidate_urls(course_code)
 
     for url in pattern_urls:
         pdf_bytes = _download_pdf(url)
@@ -183,7 +281,7 @@ def find_syllabus(course_code: str, course_name: str) -> Optional[dict]:
             return result
         time.sleep(0.3)
 
-    # Step 2: fall back to web search
+    # Step 2: DuckDuckGo search for direct .pdf links
     time.sleep(random.uniform(10.0, 18.0))
     web_urls = _search_web(course_code, course_name)
     for url in web_urls:
@@ -194,5 +292,16 @@ def find_syllabus(course_code: str, course_name: str) -> Optional[dict]:
         if result:
             result["source_url"] = url
             return result
+
+    # Step 3: Claude agent — searches the web and navigates pages to find the PDF
+    from app.services.syllabus_agent import find_syllabus_agent
+    agent_url = find_syllabus_agent(course_code, course_name)
+    if agent_url:
+        pdf_bytes = _download_pdf(agent_url)
+        if pdf_bytes:
+            result = _try_parse(pdf_bytes)
+            if result:
+                result["source_url"] = agent_url
+                return result
 
     return None

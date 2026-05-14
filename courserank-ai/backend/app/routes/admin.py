@@ -173,26 +173,40 @@ def find_syllabus_batch(
     background_tasks: BackgroundTasks,
     limit: int = 20,
     force: bool = False,
+    departments: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """Find syllabuses for up to `limit` courses.
 
-    By default only processes courses with no grading components.
-    Pass force=true to re-process courses that already have grading (e.g. seeded data).
+    - force=true: re-process courses that already have grading.
+    - departments=CS,ECE: only process courses from these dept prefixes.
+    - Skips courses previously marked not_found unless force=true.
     """
     from app.models.grading import GradingComponent as GC
 
+    dept_list = [d.strip().upper() for d in departments.split(",")] if departments else []
+
     if force:
-        courses_without = db.query(Course).limit(limit).all()
+        q = db.query(Course)
     else:
-        courses_without = (
+        # Exclude courses with no grading AND already attempted (not_found outline exists)
+        already_tried = (
+            db.query(CourseOutline.course_id)
+            .filter(CourseOutline.extraction_status == "not_found")
+            .subquery()
+        )
+        q = (
             db.query(Course)
             .outerjoin(GC, GC.course_id == Course.id)
             .filter(GC.id.is_(None))
-            .limit(limit)
-            .all()
+            .filter(Course.id.notin_(already_tried))
         )
 
+    if dept_list:
+        from sqlalchemy import or_
+        q = q.filter(or_(*[Course.course_code.like(f"{d} %") for d in dept_list]))
+
+    courses_without = q.limit(limit).all()
     course_data = [(c.id, c.course_code, c.course_name) for c in courses_without]
 
     def _run_batch(course_list):
@@ -209,6 +223,21 @@ def find_syllabus_batch(
                 continue
 
             if not result or not result.get("components"):
+                # Mark as attempted so future batches skip this course
+                local_db = SessionLocal()
+                try:
+                    local_db.add(CourseOutline(
+                        course_id=cid,
+                        raw_text=None,
+                        term=None,
+                        year=None,
+                        extraction_status="not_found",
+                    ))
+                    local_db.commit()
+                except Exception:
+                    local_db.rollback()
+                finally:
+                    local_db.close()
                 time.sleep(random.uniform(2, 4))
                 continue
 
@@ -256,6 +285,7 @@ def find_syllabus_batch(
     return {
         "status": "batch_started",
         "courses_queued": len(course_data),
+        "departments": dept_list or "all",
         "force": force,
     }
 
