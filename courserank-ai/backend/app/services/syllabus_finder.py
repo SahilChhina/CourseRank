@@ -16,6 +16,7 @@ import requests
 
 from app.services.syllabus_parser import parse_pdf
 from app.services.grading_extractor import extract_grading
+from app.services.llm_extractor import extract_grading_llm
 
 _SESSION = requests.Session()
 _SESSION.headers.update({
@@ -138,7 +139,14 @@ def _try_parse(pdf_bytes: bytes) -> Optional[dict]:
         parsed = parse_pdf(pdf_bytes)
         if not parsed.full_text or len(parsed.full_text) < 150:
             return None
-        result = extract_grading(parsed)
+
+        # Try LLM extraction first (handles messy formatting well)
+        result = extract_grading_llm(parsed.full_text)
+
+        # Fall back to regex extractor if LLM unavailable or returned nothing
+        if result is None or not result.components:
+            result = extract_grading(parsed)
+
         return {
             "raw_text": parsed.full_text,
             "components": [{"name": c.name, "weight": c.weight} for c in result.components],
