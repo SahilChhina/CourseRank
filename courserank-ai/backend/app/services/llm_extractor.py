@@ -48,6 +48,13 @@ Rules:
   "Quizzes", "Labs", "Project", "Participation".
 - If multiple instances of the same component exist (e.g. "Assignment 1: 10%, Assignment 2: 10%"),
   combine them: {"name": "Assignments", "weight": 20}.
+- In a grading table row, the LAST percentage number is ALWAYS the component's total weight.
+  Ignore any intermediate percentages (like "5% each") that appear mid-row.
+  Example row: "Assignments (12 assignments, 5% each) 55%" → {"name": "Assignments", "weight": 55}
+  (use 55, the last number — not 5 the per-item weight, not 60 the computed product)
+- If a component lists a per-item weight with a count and NO explicit total (e.g. "12 assignments worth 5% each",
+  "10 quizzes, each 2%", "5 labs × 4%"), then compute total = count × per-item weight.
+  Example: "11 assignments count toward grade, each worth 5%" → {"name": "Assignments", "weight": 55}
 - Weights should be numbers (no % sign), e.g. 30 or 27.5.
 - If you cannot find a clear grading breakdown, return {"components": []}.
 - Return ONLY the JSON object. No prose, no markdown fences."""
