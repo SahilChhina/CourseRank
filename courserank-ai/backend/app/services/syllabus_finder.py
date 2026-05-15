@@ -281,7 +281,13 @@ def find_syllabus(course_code: str, course_name: str) -> Optional[dict]:
             return result
         time.sleep(0.3)
 
-    # Step 2: DuckDuckGo search for direct .pdf links
+    # Step 2: Department index scrape — fetch the dept's outlines page and match by number
+    from app.services.dept_scraper import find_syllabus_from_index
+    result = find_syllabus_from_index(course_code, course_name)
+    if result and result.get("components"):
+        return result
+
+    # Step 3: DuckDuckGo search for direct .pdf links
     time.sleep(random.uniform(10.0, 18.0))
     web_urls = _search_web(course_code, course_name)
     for url in web_urls:
@@ -293,7 +299,7 @@ def find_syllabus(course_code: str, course_name: str) -> Optional[dict]:
             result["source_url"] = url
             return result
 
-    # Step 3: Claude agent — searches the web and navigates pages to find the PDF
+    # Step 4: Claude agent — searches the web and navigates pages to find the PDF
     from app.services.syllabus_agent import find_syllabus_agent
     agent_url = find_syllabus_agent(course_code, course_name)
     if agent_url:
